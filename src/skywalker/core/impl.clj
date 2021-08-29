@@ -3,7 +3,8 @@
             [clojure.java.nio :as nio]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
-            [msgpack.core :as msgpack])
+            [msgpack.core :as msgpack]
+            msgpack.clojure-extensions)
   (:import (java.io DataInput IOException)
            (java.nio ByteBuffer BufferUnderflowException)
            (java.nio.charset StandardCharsets)))
@@ -35,22 +36,25 @@
 
 (defn read-fully
   [socket length]
-  (async/go-loop [total 0
-                  buffer (ByteBuffer/allocate length)]
-                 (let [result (async/<! (nio/read socket {:buffer buffer}))]
-                   (if (s/valid? ::anomalies/anomaly result)
-                     result
-                     (if (= length (+ total (:length result)))
-                       buffer
-                       (recur (+ total (:length result)) buffer))))))
+  (async/go-loop [buffer (ByteBuffer/allocate length)]
+    (tap> {:task ::read-fully :buffer buffer})
+    (if (.hasRemaining buffer)
+      (let [result (async/<! (nio/read socket {:buffer buffer}))]
+        (tap> {:task ::read-fully :read-result result})
+        (if (s/valid? ::anomalies/anomaly result)
+          result
+          (recur buffer)))
+      (.flip buffer))))
 
 (defn read-message
   [socket]
   (async/go
     (let [len-buf (async/<! (read-fully socket 2))]
+      (tap> {:task ::read-message :len-buf len-buf})
       (if (s/valid? ::anomalies/anomaly len-buf)
         len-buf
         (let [length (.getShort len-buf 0)]
+          (tap> {:task ::read-message :length length})
           (if (> length 16384)
             {::anomalies/category ::anomalies/incorrect
              ::anomalies/message (str "message length " length " too long")}

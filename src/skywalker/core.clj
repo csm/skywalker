@@ -29,32 +29,33 @@
       (let [{:keys [timeout timeout-val]
              :or {timeout 60000 timeout-val ::timeout}} opts
             chan (.get chans id)
-            start (System/currentTimeMillis)
             recv (async/alt!
                    chan ([v] v)
-                   (async/timeout timeout) :timeout)
-            end (System/currentTimeMillis)]
+                   (async/timeout timeout) :timeout)]
         (if (= recv :timeout)
           timeout-val
-          (loop []
-            (if-let [recv (async/poll! chan)]
-              (do
-                (async/put! recv value)
-                (recur))
-              true))))))
+          (do
+            (async/put! recv value)
+            (loop []
+              (if-let [recv (async/poll! chan)]
+                (do
+                  (async/put! recv value)
+                  (recur))
+                true)))))))
 
   (recv! [_ id opts]
     (async/go
       (let [{:keys [timeout timeout-val]
              :or {timeout 60000 timeout-val ::timeout}} opts
             chan (.get chans id)
-            recv (async/promise-chan)]
+            recv (async/promise-chan)
+            start (System/currentTimeMillis)]
         (case (async/alt!
                 [[chan recv]] :ok
                 (async/timeout timeout) :timeout)
           :ok (async/alt!
                 recv ([v] v)
-                (async/timeout timeout) timeout-val)
+                (async/timeout (- timeout (- (System/currentTimeMillis) start))) timeout-val)
           :timeout timeout-val)))))
 
 (defn local-junction

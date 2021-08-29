@@ -50,14 +50,16 @@
   (let [server (AsynchronousServerSocketChannel/open)
         junction (core/local-junction)]
     (.bind server bind-address backlog)
-    (async/go-loop []
-      (let [socket (async/<! (nio/accept server {}))]
-        (if (s/valid? ::anomalies/anomaly socket)
-          (do
-            (.close server)
-            server)
-          (do
-            (async/go
-              (async/<! (handler junction socket))
-              (.close socket))
-            (recur)))))))
+    (let [server-chan (async/go-loop []
+                        (let [socket (async/<! (nio/accept server {}))]
+                          (if (s/valid? ::anomalies/anomaly socket)
+                            (do
+                              (.close server)
+                              server)
+                            (do
+                              (async/go
+                                (async/<! (handler junction socket))
+                                (.close socket))
+                              (recur)))))]
+      {:socket server
+       :server-chan server-chan})))
