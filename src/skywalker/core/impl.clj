@@ -1,4 +1,5 @@
 (ns skywalker.core.impl
+  "Common implementation details for client/server."
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
             [clojure.spec.alpha :as s]
@@ -10,40 +11,56 @@
            (java.nio.charset StandardCharsets)))
 
 (defn write-fully
-  [socket buffer]
-  (async/go-loop []
-    (when (.hasRemaining buffer)
-      (let [result (async/<! (nio/write socket buffer {}))]
-        (if (s/valid? ::anomalies/anomaly result)
-          result
-          (recur))))))
+  [socket buffer lock]
+  (async/go
+    (async/<! lock)
+    (loop []
+      (if (.hasRemaining buffer)
+        (do
+          (tap> {:task ::write-fully :remaining (.remaining buffer)})
+          (let [result (async/<! (nio/write socket buffer {}))]
+            (if (s/valid? ::anomalies/anomaly result)
+              (do
+                (async/put! lock true)
+                result)
+              (recur))))
+        (do
+          (async/put! lock true)
+          nil)))))
 
 (defn send-msg-common
-  [socket msgid-atom method-calls method & args]
+  [socket msgid-atom method-calls lock method & args]
   (async/go
     (let [msgid (swap! msgid-atom inc)
           msg (into [method msgid] args)
+          _ (tap> {:task ::send-msg-common :msg msg})
           bytes (msgpack/pack msg)
           buffer (ByteBuffer/allocate (+ (alength bytes) 2))
-          result (async/promise-chan)]
-      (.put method-calls msgid result)
+          result-chan (async/promise-chan)]
+      (.put method-calls msgid result-chan)
       (.putShort buffer (short (alength bytes)))
       (.put buffer ^bytes bytes)
-      (let [result (async/<! (write-fully socket buffer))]
+      (.flip buffer)
+      (let [result (async/<! (write-fully socket buffer lock))]
         (if (s/valid? ::anomalies/anomaly result)
           result)
-        (async/<! result)))))
+        (async/<! result-chan)))))
 
 (defn read-fully
   [socket length]
   (async/go-loop [buffer (ByteBuffer/allocate length)]
-    (tap> {:task ::read-fully :buffer buffer})
+    (tap> {:task ::read-fully :buffer buffer :socket socket})
     (if (.hasRemaining buffer)
       (let [result (async/<! (nio/read socket {:buffer buffer}))]
         (tap> {:task ::read-fully :read-result result})
         (if (s/valid? ::anomalies/anomaly result)
           result
-          (recur buffer)))
+          (if (neg? (:length result))
+            (if (.hasRemaining buffer)
+              {::anomalies/category ::anomalies/interrupted
+               ::anomalies/message "Socket closed, but awaiting more bytes"}
+              (.flip buffer))
+            (recur buffer))))
       (.flip buffer))))
 
 (defn read-message
@@ -53,7 +70,7 @@
       (tap> {:task ::read-message :len-buf len-buf})
       (if (s/valid? ::anomalies/anomaly len-buf)
         len-buf
-        (let [length (.getShort len-buf 0)]
+        (let [length (bit-and (.getShort len-buf 0) 0xFFFF)]
           (tap> {:task ::read-message :length length})
           (if (> length 16384)
             {::anomalies/category ::anomalies/incorrect
@@ -109,3 +126,17 @@
               buf (byte-array len)]
           (.get buffer buf)
           (String. buf StandardCharsets/UTF_8))))))
+
+(defprotocol AsyncLock
+  (lock [this])
+  (unlock [this]))
+
+(defn async-lock
+  []
+  (let [chan (async/chan 1)]
+    (async/put! chan true)
+    (reify AsyncLock
+      (lock [_]
+        (async/go (async/<! chan)))
+      (unlock [_]
+        (async/put! chan true)))))
