@@ -1,0 +1,7 @@
+{:deps {org.clojure/clojure {:mvn/version "1.10.3"}
+        org.clojure/core.async {:mvn/version "1.3.618"}
+        com.google.guava/guava {:mvn/version "30.1-jre"}
+        io.github.csm/core.nio {:git/url "https://github.com/csm/core.nio.git"
+                                :sha "40ac3c12fcc81f0390c2ff688aface49742ec276"}
+        clojure-msgpack/clojure-msgpack {:mvn/version "1.2.1"}
+        com.boundary/high-scale-lib {:mvn/version "1.0.6"}}}
