@@ -1,13 +1,13 @@
 (ns skywalker.remote-test
   (:require [clojure.test :refer :all]
-            [skywalker.core.client :as client]
-            [skywalker.core.server :as server]
+            [skywalker.client :as client]
+            [skywalker.server :as server]
             [clojure.core.async :as async]
             [skywalker.core :as core])
-  (:import (java.net InetSocketAddress InetAddress)
-           (java.nio.channels AsynchronousServerSocketChannel)))
+  (:import (java.net InetSocketAddress InetAddress)))
 
-;(add-tap (comp println pr-str))
+(comment
+  (add-tap (comp println pr-str)))
 
 (def ^:dynamic *port*)
 

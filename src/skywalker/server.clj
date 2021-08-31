@@ -1,4 +1,4 @@
-(ns skywalker.core.server
+(ns skywalker.server
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
             [cognitect.anomalies :as anomalies]
@@ -57,7 +57,7 @@
                        (recur))
             ":tokens" (let [[_ msgid] message]
                         (tap> {:task ::handler :phase :send-tokens :message message})
-                        (send-reply socket [":tokens" msgid tokens]))
+                        (send-reply socket [":tokens" msgid tokens] lock))
             (println "invalid message:" (pr-str message))))))))
 
 (defn server
@@ -66,7 +66,7 @@
         junction (core/local-junction)
         random (when-not tokens (SecureRandom.))
         tokens (or tokens (->> (range num-tokens)
-                               (map #(.nextLong random))
+                               (map (constantly (.nextLong random)))
                                (sort)
                                (into [])))]
     (.bind server bind-address backlog)

@@ -1,4 +1,4 @@
-(ns skywalker.core.client
+(ns skywalker.client
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
             [clojure.spec.alpha :as s]

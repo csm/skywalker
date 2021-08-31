@@ -1,4 +1,4 @@
-(ns skywalker.core.cluster.consul
+(ns skywalker.cluster.consul
   (:require [clojure.core.async :as async]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
