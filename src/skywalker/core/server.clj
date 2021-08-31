@@ -7,7 +7,8 @@
             [clojure.spec.alpha :as s]
             [msgpack.core :as msgpack])
   (:import (java.nio.channels AsynchronousServerSocketChannel)
-           (java.nio ByteBuffer)))
+           (java.nio ByteBuffer)
+           (java.security SecureRandom)))
 
 (defn- send-reply
   [socket reply lock]
@@ -24,7 +25,7 @@
           (println "todo, handle errors!" (prn res)))))))
 
 (defn handler
-  [junction socket]
+  [junction socket tokens]
   (async/go-loop []
     (let [message (async/<! (read-message socket))
           lock (doto (async/chan 1) (async/put! true))]
@@ -54,12 +55,20 @@
                            (tap> {:task ::handler :phase :recv-result :result result})
                            (send-reply socket [":recv!" msgid result] lock)))
                        (recur))
+            ":tokens" (let [[_ msgid] message]
+                        (tap> {:task ::handler :phase :send-tokens :message message})
+                        (send-reply socket [":tokens" msgid tokens]))
             (println "invalid message:" (pr-str message))))))))
 
 (defn server
-  [bind-address & {:keys [backlog] :or {backlog 0}}]
+  [bind-address & {:keys [backlog tokens num-tokens] :or {backlog 0 num-tokens 32}}]
   (let [server (AsynchronousServerSocketChannel/open)
-        junction (core/local-junction)]
+        junction (core/local-junction)
+        random (when-not tokens (SecureRandom.))
+        tokens (or tokens (->> (range num-tokens)
+                               (map #(.nextLong random))
+                               (sort)
+                               (into [])))]
     (.bind server bind-address backlog)
     (let [server-chan (async/go-loop []
                         (let [socket (async/<! (nio/accept server {}))]
@@ -70,7 +79,7 @@
                               server)
                             (do
                               (async/go
-                                (async/<! (handler junction socket))
+                                (async/<! (handler junction socket tokens))
                                 (.close socket))
                               (recur)))))]
       {:socket server
