@@ -12,12 +12,14 @@
   (add-tap (comp println pr-str)))
 
 (def ^:dynamic *port*)
+(def ^:dynamic *server*)
 
 (use-fixtures :each
   (fn [f]
     (let [server (server/server (InetSocketAddress. (InetAddress/getLocalHost) 0))
           port (.getPort (.getLocalAddress (:socket server)))]
-      (binding [*port* port]
+      (binding [*server* server
+                *port* port]
         (f))
       (.close (:socket server)))))
 
@@ -62,3 +64,20 @@
         (is (= ::timeout (async/<!! recv3)))
         (is (= true (async/<!! send)))))))
 
+(deftest test-recv-close
+  (let [client1 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))
+        client2 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))
+        recv-chan (core/recv! client1 "foo" {:timeout 10000})]
+    (async/put! (:closer-chan *server*) (constantly true))
+    (let [send-chan (core/send! client2 "foo" "bar" {:timeout 5000})]
+      (is (= "bar" (async/<!! recv-chan)))
+      (is (= true (async/<!! send-chan))))))
+
+(deftest test-send-close
+  (let [client1 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))
+        client2 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))
+        send-chan (core/send! client1 "foo" "bar" {:timeout 10000})]
+    (async/put! (:closer-chan *server*) (constantly true))
+    (let [recv-chan (core/recv! client2 "foo" {:timeout 5000})]
+      (is (= "bar" (async/<!! recv-chan)))
+      (is (= true (async/<!! send-chan))))))

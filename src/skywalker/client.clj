@@ -66,11 +66,27 @@
   core/Junction
   (send! [_ id value opts]
     (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
-      (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":send!" timeout timeout-val id value)))
+      (async/go-loop [timeout timeout]
+        (let [start (System/currentTimeMillis)
+              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":send!" timeout timeout-val id value))
+              elapsed (- (System/currentTimeMillis) start)]
+          (if (= result ::closed)
+            (if (pos? (- timeout elapsed))
+              (recur (- timeout elapsed))
+              timeout-val)
+            result)))))
 
   (recv! [_ id opts]
     (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
-      (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":recv!" timeout timeout-val id)))
+      (async/go-loop [timeout timeout]
+        (let [start (System/currentTimeMillis)
+              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":recv!" timeout timeout-val id))
+              elapsed (- (System/currentTimeMillis) start)]
+          (if (= result ::closed)
+            (if (pos? (- timeout elapsed))
+              (recur (- timeout elapsed))
+              timeout-val)
+            result)))))
 
   Client
   (start! [this]
@@ -83,6 +99,9 @@
               (tap> {:task ::run! :phase :errored :anomaly message})
               (async/<! lock)
               (compare-and-set! socket s nil)
+              (doseq [ch (.values method-calls)]
+                (async/put! ch ::closed))
+              (.clear method-calls)
               (async/put! lock true)
               (recur))
             (let [result (try

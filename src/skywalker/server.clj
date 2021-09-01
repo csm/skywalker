@@ -61,6 +61,22 @@
             (println "invalid message:" (pr-str message))))))))
 
 (defn server
+  "Start a skywalker server, bound to bind-address.
+
+  Options include:
+
+  - :backlog - The server socket backlog, default 0.
+  - :tokens - An explicit set of tokens (random long integers). If omitted random tokens are generated.
+  - :num-tokens - The number of random tokens to generate, default 32.
+
+  Returns a map with values:
+
+  - :server - The underlying AsynchronousServerSocketChannel.
+  - :server-chan - A channel that will yield when the server accept loop
+    stops.
+  - :closer-chan - A channel that you can use to close active connections.
+    Pass a predicate function that will receive the AsynchronousSocketChannel
+    and return a truthy value if the socket should be closed."
   [bind-address & {:keys [backlog tokens num-tokens] :or {backlog 0 num-tokens 32}}]
   (let [server (AsynchronousServerSocketChannel/open)
         junction (core/local-junction)
@@ -68,19 +84,34 @@
         tokens (or tokens (->> (range num-tokens)
                                (map (constantly (.nextLong random)))
                                (sort)
-                               (into [])))]
+                               (into [])))
+        closer (async/chan)
+        connections (atom #{})]
     (.bind server bind-address backlog)
+    (async/go-loop []
+      (when-let [pred (async/<! closer)]
+        (doseq [socket @connections]
+          (when (pred socket)
+            (try
+              (.close socket)
+              (catch Exception _))))))
     (let [server-chan (async/go-loop []
                         (let [socket (async/<! (nio/accept server {}))]
                           (tap> {:task ::server :phase :accepted-socket :socket socket})
                           (if (s/valid? ::anomalies/anomaly socket)
                             (do
                               (.close server)
+                              (async/close! closer)
                               server)
                             (do
                               (async/go
+                                (swap! connections conj socket)
                                 (async/<! (handler junction socket tokens))
-                                (.close socket))
+                                (try
+                                  (.close socket)
+                                  (catch Exception _))
+                                (swap! connections disj socket))
                               (recur)))))]
       {:socket server
-       :server-chan server-chan})))
+       :server-chan server-chan
+       :closer-chan closer})))
