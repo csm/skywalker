@@ -1,9 +1,11 @@
 (ns skywalker.remote-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.core.async :as async]
+            [clojure.spec.alpha :as s]
+            [clojure.test :refer :all]
+            [cognitect.anomalies :as anomalies]
             [skywalker.client :as client]
-            [skywalker.server :as server]
-            [clojure.core.async :as async]
-            [skywalker.core :as core])
+            [skywalker.core :as core]
+            [skywalker.server :as server])
   (:import (java.net InetSocketAddress InetAddress)))
 
 (comment
@@ -18,6 +20,13 @@
       (binding [*port* port]
         (f))
       (.close (:socket server)))))
+
+(deftest test-get-tokens
+  (let [client1 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))
+        tokens (async/<!! (client/tokens client1 {}))]
+    (is (not (s/valid? ::anomalies/anomaly tokens)))
+    (is (sequential? tokens))
+    (is (every? integer? tokens))))
 
 (deftest test-send-timeout
   (let [client1 (async/<!! (client/remote-junction (InetSocketAddress. (InetAddress/getLocalHost) *port*) {}))]
