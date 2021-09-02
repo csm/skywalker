@@ -7,4 +7,9 @@
         com.boundary/high-scale-lib {:mvn/version "1.0.6"}
         org.eclipse.jetty/jetty-server {:mvn/version "11.0.6"}
         org.eclipse.jetty/jetty-servlet {:mvn/version "11.0.6"}
-        org.clojure/data.json {:mvn/version "1.0.0"}}}
+        org.clojure/data.json {:mvn/version "1.0.0"}}
+ :paths ["src"]
+ :aliases {:uberjar {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.1.278"}}
+                     :exec-fn hf.depstar/uberjar
+                     :exec-args {:aot true
+                                 :compile-ns [skywalker.server.main]}}}}

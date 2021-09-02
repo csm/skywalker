@@ -1,0 +1,67 @@
+services:
+  consul1:
+    image: consul
+    command: consul agent -dev -bind 0.0.0.0 -client 0.0.0.0
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+    ports:
+      - "8500:8500"
+    healthcheck:
+      test: curl localhost:8500/status/leader
+  consul2:
+    image: consul
+    command: consul agent -dev -bind 0.0.0.0 -client 0.0.0.0 -join=consul1
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+    depends_on:
+      - consul1
+  consul3:
+    image: consul
+    command: consul agent -dev -bind 0.0.0.0 -client 0.0.0.0 -join=consul1
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+    depends_on:
+      - consul1
+  consul4:
+    image: consul
+    command: consul agent -dev -bind 0.0.0.0 -client 0.0.0.0 -join=consul1
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+    depends_on:
+      - consul1
+  consul5:
+    image: consul
+    command: consul agent -dev -bind 0.0.0.0 -client 0.0.0.0 -join=consul1
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+    depends_on:
+      - consul1
+  skywalker1:
+    image: rsdio/skywalker
+    command: java -cp /skywalker.jar clojure.main -m skywalker.server.main
+    depends_on:
+      - consul1
+      - consul2
+      - consul3
+      - consul4
+      - consul5
