@@ -68,3 +68,11 @@ Would be encoded as:
 ```
 000d93a63a726563762101a3626172
 ```
+
+## Getting Started
+
+The docker compose file can be used to spin up an example cluster of 2 skywalker nodes and 5 consul nodes:
+
+```
+docker compose up -d
+```

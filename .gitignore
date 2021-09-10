@@ -1,3 +1,5 @@
 /.nrepl-port
 /skywalker-clj.iml
 /.idea/
+/.cpcache/
+/skywalker.jar

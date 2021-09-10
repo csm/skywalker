@@ -7,8 +7,8 @@ RUN clj -A:server-deps -P
 RUN clj -X:uberjar :jar ./skywalker.jar
 
 FROM openjdk:11-jre
-COPY --from=builder /root/.m2/repository/ch/qos/logback/logback-classic/1.2.3/logback-classic-1.2.3.jar /
-COPY --from=builder /root/.m2/repository/ch/qos/logback/logback-core/1.2.3/logback-core-1.2.3.jar /
+COPY --from=builder /root/.m2/repository/ch/qos/logback/logback-classic/1.3.0-alpha10/logback-classic-1.3.0-alpha10.jar /
+COPY --from=builder /root/.m2/repository/ch/qos/logback/logback-core/1.3.0-alpha10/logback-core-1.3.0-alpha10.jar /
 COPY --from=builder /tmp/skywalker.jar /
 COPY server/logback.xml /
 COPY server/run.sh /
