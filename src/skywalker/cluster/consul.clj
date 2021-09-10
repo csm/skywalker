@@ -5,9 +5,9 @@
             [clojure.set :as set]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
-            [skywalker.core.cluster :as cluster])
-  (:import (java.net URI)
-           (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers)
+            [skywalker.cluster :as cluster])
+  (:import (java.net URI InetAddress)
+           (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers HttpRequest$BodyPublishers HttpResponse)
            (java.util.function BiConsumer)
            (java.nio.charset StandardCharsets)))
 
@@ -68,4 +68,33 @@
                   {:nodes @nodes
                    :error {::anomalies/category ::anomalies/fault
                            ::anomalies/message  (str "consul request failed with " (.statusCode response))
-                           :body                (String. ^bytes (.body response) StandardCharsets/UTF_8)}})))))))))
+                           :body                (String. ^bytes (.body response) StandardCharsets/UTF_8)}}))))))
+
+      (register-node [this opts]
+        (let [{:keys [bind-address health-url id] :or {id (.getHostName (InetAddress/getLocalHost))}} opts
+              uri (.resolve uri (str "/v1/agent/service/register/"))
+              request (-> (HttpRequest/newBuilder)
+                          (.PUT (HttpRequest$BodyPublishers/ofString
+                                  (json/write-str
+                                    {:Name service
+                                     :Address (.getHostAddress (.getAddress bind-address))
+                                     :Port (.getPort bind-address)
+                                     :Check {:Interval "30s"
+                                             :Timeout "5s"
+                                             :HTTP health-url}})))
+                          (.header "Content-type" "application/json")
+                          (.uri uri)
+                          (.build))
+              future (.sendAsync client request
+                                 (HttpResponse$BodyHandlers/ofByteArray))
+              channel (async/promise-chan)]
+          (.whenComplete future
+            (reify BiConsumer
+              (accept [_ res ex]
+                (tap> [:debug "register service result" res "ex" ex])
+                (if (some? ex)
+                  (async/put! channel {::anomalies/category ::anomalies/fault
+                                       ::anomalies/message (.getMessage ^Throwable ex)
+                                       :cause ex})
+                  (async/put! channel true)))))
+          channel)))))

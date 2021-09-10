@@ -8,7 +8,8 @@
             [skywalker.core.impl :refer :all])
   (:import (org.cliffc.high_scale_lib NonBlockingHashMapLong)
            (java.nio.channels AsynchronousSocketChannel)
-           (java.io Closeable)))
+           (java.io Closeable)
+           (java.util UUID)))
 
 (defprotocol Client
   (start! [this] "Starts the client."))
@@ -62,7 +63,7 @@
               result)
             result))))))
 
-(deftype RemoteJunction [msgid-atom socket remote-address retries max-delay method-calls lock socket-chan]
+(deftype RemoteJunction [msgid-atom socket remote-address retries max-delay method-calls lock socket-chan id node]
   core/Junction
   (send! [_ id value opts]
     (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
@@ -148,6 +149,8 @@
                                       (NonBlockingHashMapLong.)
                                       (doto (async/chan 1)
                                         (async/put! true))
-                                      (async/chan))]
+                                      (async/chan)
+                                      (:id opts (str (UUID/randomUUID)))
+                                      (:node opts (str (UUID/randomUUID))))]
           (start! junct)
           junct)))))

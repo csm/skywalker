@@ -58,10 +58,33 @@ services:
       - consul1
   skywalker1:
     image: rsdio/skywalker
-    command: java -cp /skywalker.jar clojure.main -m skywalker.server.main
+    command: /bin/bash /run.sh --consul --health-port 8080 --health-bind 127.0.0.1
     depends_on:
       - consul1
       - consul2
       - consul3
       - consul4
       - consul5
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+      - 3443
+  skywalker2:
+    image: rsdio/skywalker
+    command: /bin/bash /run.sh --consul --health-port 8080 --health-bind 127.0.0.1
+    depends_on:
+      - consul1
+      - consul2
+      - consul3
+      - consul4
+      - consul5
+    expose:
+      - 8300
+      - 8301
+      - 8302
+      - 8500
+      - 8600
+      - 3443

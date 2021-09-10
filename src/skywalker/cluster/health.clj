@@ -37,7 +37,8 @@
     (.setConnectors server (into-array Connector [connector]))
     (.addServletWithMapping servlet-handler servlet-holder ^String path)
     (.setHandler server servlet-handler)
-    (let [running-chan (async/thread (.start server))
+    (let [running-chan (async/thread (.start server)
+                                     (.join server))
           port (.getLocalPort connector)]
       {:server server
        :running-chan running-chan
