@@ -5,30 +5,30 @@
             [skywalker.core :as core]
             [skywalker.core.impl :refer :all]
             [clojure.spec.alpha :as s]
-            [msgpack.core :as msgpack])
+            [msgpack.core :as msgpack]
+            [skywalker.taplog :as log])
   (:import (java.nio.channels AsynchronousServerSocketChannel)
            (java.nio ByteBuffer)
            (java.security SecureRandom)))
 
 (defn- send-reply
   [socket reply lock]
+  (log/log :trace {:task ::send-reply :phase :begin :reply reply})
   (let [bytes (msgpack/pack reply)
         buffer (ByteBuffer/allocate (+ (alength bytes) 2))]
     (.putShort buffer (short (alength bytes)))
     (.put buffer ^bytes bytes)
     (.flip buffer)
-    (async/take!
-      (write-fully socket buffer lock)
-      (fn [res]
-        (tap> {:task ::send-reply :result res})
+    (async/go
+      (let [res (async/<! (write-fully socket buffer lock))]
+        (log/log :trace {:task ::send-reply :phase :end :result res})
         (when (s/valid? ::anomalies/anomaly res)
-          (println "todo, handle errors!" (prn res)))))))
+          res)))))
 
 (defn handler
-  [junction socket tokens]
+  [junction socket tokens read-lock write-lock]
   (async/go-loop []
-    (let [message (async/<! (read-message socket))
-          lock (doto (async/chan 1) (async/put! true))]
+    (let [message (async/<! (read-message socket read-lock))]
       (if (s/valid? ::anomalies/anomaly message)
         message
         (let [message (try
@@ -37,27 +37,38 @@
                           {::anomalies/category ::anomalies/incorrect
                            ::anomalies/message (.getMessage e)
                            ::cause e}))]
-          (tap> {:task ::handler :phase :read-message :message message})
+          (log/log :debug {:task ::handler :phase :read-message :message message})
           (case (first message)
-            ":send!" (let [[_ msgid timeout timeout-val id value] message]
-                       (tap> {:task ::handler :phase :begin-send :message message})
+            ":send!" (let [[_ msgid timeout id value] message]
+                       (log/log :debug {:task ::handler :phase :begin-send :message message})
                        (async/take!
-                         (core/send! junction id value {:timeout timeout :timeout-val timeout-val})
+                         (core/send! junction id value {:timeout timeout :timeout-val (->Timeout)})
                          (fn [result]
-                           (tap> {:task ::handler :phase :send-result :result result})
-                           (send-reply socket [":send!" msgid result] lock)))
+                           (log/log :debug {:task ::handler :phase :send-result :result result})
+                           (async/take!
+                             (send-reply socket [":send!" msgid result]
+                                         write-lock)
+                             (fn [res]
+                               (log/log :debug {:task ::handler :phase :sent-send-reply :result res})))))
                        (recur))
-            ":recv!" (let [[_ msgid timeout timeout-val id] message]
-                       (tap> {:task ::handler :phase :begin-recv :message message})
+            ":recv!" (let [[_ msgid timeout id] message]
+                       (log/log :debug {:task ::handler :phase :begin-recv :message message})
                        (async/take!
-                         (core/recv! junction id {:timeout timeout :timeout-val timeout-val})
+                         (core/recv! junction id {:timeout timeout :timeout-val (->Timeout)})
                          (fn [result]
-                           (tap> {:task ::handler :phase :recv-result :result result})
-                           (send-reply socket [":recv!" msgid result] lock)))
+                           (log/log :debug {:task ::handler :phase :recv-result :result result})
+                           (async/take!
+                             (send-reply socket [":recv!" msgid result] write-lock)
+                             (fn [res]
+                               (log/log :debug {:task ::handler :phase :sent-recv-reply :result res})))))
                        (recur))
             ":tokens" (let [[_ msgid] message]
-                        (tap> {:task ::handler :phase :send-tokens :message message})
-                        (send-reply socket [":tokens" msgid tokens] lock))
+                        (log/log :debug {:task ::handler :phase :send-tokens :message message})
+                        (async/take!
+                          (send-reply socket [":tokens" msgid tokens] write-lock)
+                          (fn [res]
+                            (log/log :debug {:task ::handler :phase :send-tokens-reply :result res})))
+                        (recur))
             (println "invalid message:" (pr-str message))))))))
 
 (defn server
@@ -82,11 +93,13 @@
         junction (core/local-junction)
         random (when-not tokens (SecureRandom.))
         tokens (or tokens (->> (range num-tokens)
-                               (map (constantly (.nextLong random)))
+                               (map (fn [_] (.nextLong random)))
                                (sort)
                                (into [])))
         closer (async/chan)
-        connections (atom #{})]
+        connections (atom #{})
+        read-lock (async-lock)
+        write-lock (async-lock)]
     (.bind server bind-address backlog)
     (async/go-loop []
       (when-let [pred (async/<! closer)]
@@ -97,7 +110,7 @@
               (catch Exception _))))))
     (let [server-chan (async/go-loop []
                         (let [socket (async/<! (nio/accept server {}))]
-                          (tap> {:task ::server :phase :accepted-socket :socket socket})
+                          (log/log :debug {:task ::server :phase :accepted-socket :socket socket})
                           (if (s/valid? ::anomalies/anomaly socket)
                             (do
                               (.close server)
@@ -106,7 +119,7 @@
                             (do
                               (async/go
                                 (swap! connections conj socket)
-                                (async/<! (handler junction socket tokens))
+                                (async/<! (handler junction socket tokens read-lock write-lock))
                                 (try
                                   (.close socket)
                                   (catch Exception _))

@@ -5,11 +5,14 @@
             [cognitect.anomalies :as anomalies]
             [msgpack.core :as msgpack]
             [skywalker.core :as core]
-            [skywalker.core.impl :refer :all])
+            [skywalker.core.impl :refer :all]
+            [skywalker.taplog :as log])
   (:import (org.cliffc.high_scale_lib NonBlockingHashMapLong)
            (java.nio.channels AsynchronousSocketChannel)
            (java.io Closeable)
-           (java.util UUID)))
+           (java.util UUID)
+           (java.net InetSocketAddress)
+           (skywalker.core.impl Timeout)))
 
 (defprotocol Client
   (start! [this] "Starts the client."))
@@ -26,34 +29,43 @@
 (defn- ensure-connection
   [socket socket-chan remote-address lock]
   (async/go-loop []
+    (log/log :debug {:task ::ensure-connection
+                     :phase :begin
+                     :socket socket
+                     :remote-address remote-address})
     (let [s @socket]
       (if (nil? s)
-        (do
-          (async/<! lock)
+        (async-locking lock
           (let [news (AsynchronousSocketChannel/open)
                 connect (async/<! (nio/connect news remote-address {}))]
+            (log/log :debug {:task ::ensure-connection
+                             :phase :connected
+                             :result connect})
             (if (s/valid? ::anomalies/anomaly connect)
-              (do
-                (async/put! lock true)
-                connect)
+              connect
               (do
                 (compare-and-set! socket s news)
-                (async/put! lock true)
                 (async/put! socket-chan true)
                 news))))
         s))))
 
 (defn- send-message-with-retry
-  [socket socket-chan remote-address retries max-retry msgid-atom method-calls lock method & args]
+  [socket socket-chan remote-address retries max-retry msgid-atom method-calls write-lock method & args]
   (async/go-loop [tries retries delay 8]
-    (let [socket (async/<! (ensure-connection socket socket-chan remote-address lock))]
+    (log/log :debug {:task ::send-message-with-retry
+                     :phase :begin
+                     :tries tries :delay delay})
+    (let [socket (async/<! (ensure-connection socket socket-chan remote-address write-lock))]
+      (log/log :debug {:task ::send-message-with-retry
+                       :phase :got-socket
+                       :socket socket})
       (if (s/valid? ::anomalies/anomaly socket)
         (if (pos? tries)
           (do
             (async/<! (async/timeout delay))
             (recur (dec tries) (min max-retry (* delay 2))))
           socket)
-        (let [result (async/<! (apply send-msg-common socket msgid-atom method-calls lock method args))]
+        (let [result (async/<! (apply send-msg-common socket msgid-atom method-calls write-lock method args))]
           (if (s/valid? ::anomalies/anomaly result)
             (if (pos? tries)
               (do
@@ -63,61 +75,79 @@
               result)
             result))))))
 
-(deftype RemoteJunction [msgid-atom socket remote-address retries max-delay method-calls lock socket-chan id node]
+(deftype RemoteJunction [msgid-atom socket remote-address retries max-delay method-calls read-lock write-lock socket-chan junction-id node]
   core/Junction
   (send! [_ id value opts]
     (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
       (async/go-loop [timeout timeout]
         (let [start (System/currentTimeMillis)
-              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":send!" timeout timeout-val id value))
+              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":send!" timeout id value))
               elapsed (- (System/currentTimeMillis) start)]
-          (if (= result ::closed)
+          (cond
+            (= result ::closed)
             (if (pos? (- timeout elapsed))
               (recur (- timeout elapsed))
               timeout-val)
-            result)))))
+
+            (satisfies? ITimeout result) timeout-val
+
+            :else result)))))
 
   (recv! [_ id opts]
     (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
       (async/go-loop [timeout timeout]
         (let [start (System/currentTimeMillis)
-              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":recv!" timeout timeout-val id))
+              result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":recv!" timeout id))
               elapsed (- (System/currentTimeMillis) start)]
-          (if (= result ::closed)
+          (cond
+            (= result ::closed)
             (if (pos? (- timeout elapsed))
               (recur (- timeout elapsed))
               timeout-val)
-            result)))))
+
+            (satisfies? ITimeout result) timeout-val
+
+            :else result)))))
 
   Client
   (start! [this]
     (async/go-loop []
+      (log/log :debug {:task ::start!
+                       :phase :begin})
       (if-let [s @socket]
-        (let [message (async/<! (read-message s))]
-          (tap> {:task ::start! :phase :read-message :message message})
+        (let [_ (log/log :debug {:task ::start!
+                                 :phase :got-socket
+                                 :socket s})
+              message (async/<! (read-message s read-lock))]
+          (log/log :debug {:task ::start! :phase :read-message :message message})
           (if (s/valid? ::anomalies/anomaly message)
             (do
-              (tap> {:task ::run! :phase :errored :anomaly message})
-              (async/<! lock)
-              (compare-and-set! socket s nil)
-              (doseq [ch (.values method-calls)]
-                (async/put! ch ::closed))
-              (.clear method-calls)
-              (async/put! lock true)
+              (async-locking write-lock
+                (log/log :debug {:task ::start :phase :errored :anomaly message})
+                (compare-and-set! socket s nil)
+                (doseq [ch (.values method-calls)]
+                  (async/put! ch ::closed))
+                (.clear method-calls))
               (recur))
             (let [result (try
                            (let [message (msgpack/unpack-stream (data-input message))
                                  [_ msgid result] message]
-                             (tap> {:task ::start! :phase :parsed-message :message message})
-                             (if-let [receiver (.get method-calls ^long (long msgid))]
+                             (log/log :debug {:task ::start! :phase :parsed-message :message message})
+                             (if-let [receiver (.remove method-calls ^long (long msgid))]
                                (async/put! receiver result)
-                               (println "error, invalid message ID" msgid "method calls:" method-calls)))
+                               (log/log :error {:task ::start!
+                                                :phase :handling-response
+                                                :error :bad-message-id
+                                                :message-id msgid})))
                            (catch Exception e
+                             (log/log :error {:task ::start!
+                                              :phase :caught-exception-handling-reply
+                                              :exception e})
                              {::anomalies/category ::anomalies/fault
                               ::anomalies/message (.getMessage e)
                               ::cause e}))]
               (if (s/valid? ::anomalies/anomaly result)
-                (tap> {:task ::run! :phase :error-reading-message :anomaly result})
+                (log/log :debug {:task ::run! :phase :error-reading-message :anomaly result})
                 (recur)))))
         (do
           (async/alts! [socket-chan (async/timeout 1000)])
@@ -125,20 +155,30 @@
 
   Tokened
   (tokens [_ _opts]
-    (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls lock ":tokens"))
+    (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":tokens"))
 
   Closeable
   (close [_]
     (doseq [ch (.values method-calls)]
       (async/close! ch))
-    (.close socket)))
+    (when-let [s @socket] (.close s))))
+
+(defmethod print-method RemoteJunction
+  [j w]
+  (.write w (pr-str {:type 'skywalker.client/RemoteJunction
+                     :msgid (deref (.-msgid_atom j))
+                     :connected? (some-> (.-socket j) ^AsynchronousSocketChannel (deref) (.isOpen))
+                     :remote-address {:host (.getHostAddress (.getAddress ^InetSocketAddress (.-remote_address j)))
+                                      :port (.getPort ^InetSocketAddress (.-remote_address j))}
+                     :id (.-junction_id j)
+                     :node (.-node j)})))
 
 (defn remote-junction
   [address opts]
   (async/go
     (let [socket (AsynchronousSocketChannel/open)
           result (async/<! (nio/connect socket address opts))]
-      (tap> {:task ::remote-junction :phase :connected :result result})
+      (log/log :debug {:task ::remote-junction :phase :connected :result result})
       (if (s/valid? ::anomalies/anomaly result)
         result
         (let [junct (->RemoteJunction (atom 0)
@@ -147,8 +187,8 @@
                                       (get opts :retries 10)
                                       (get opts :max-delay 60000)
                                       (NonBlockingHashMapLong.)
-                                      (doto (async/chan 1)
-                                        (async/put! true))
+                                      (async-lock)
+                                      (async-lock)
                                       (async/chan)
                                       (:id opts (str (UUID/randomUUID)))
                                       (:node opts (str (UUID/randomUUID))))]

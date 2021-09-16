@@ -5,35 +5,70 @@
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
             [msgpack.core :as msgpack]
-            msgpack.clojure-extensions)
+            msgpack.clojure-extensions
+            [msgpack.macros :refer [extend-msgpack]]
+            [skywalker.taplog :as log])
   (:import (java.io DataInput IOException)
            (java.nio ByteBuffer BufferUnderflowException)
            (java.nio.charset StandardCharsets)))
 
+(defprotocol ITimeout)
+
+(deftype Timeout [] ITimeout)
+
+(extend-msgpack Timeout
+  84
+  [t] (byte-array 1)
+  [b] (->Timeout))
+
+(def ^:dynamic *lock-id* nil)
+
+(defn async-lock []
+  (async/chan 1))
+
+(defmacro async-locking
+  [lock form & forms]
+  `(if *lock-id*
+     (do
+       (log/log :trace {:task ::async-locking :phase :already-locked :lock-id *lock-id*})
+       ~form
+       ~@forms)
+     (let [lock-id# (gensym)
+           lock# ~lock]
+       (log/log :trace {:task ::async-locking :phase :locking :lock-id lock-id#})
+       (async/>! lock# lock-id#)
+       (log/log :trace {:task ::async-locking :phase :got-lock :lock-id lock-id#})
+       (let [result# (try
+                       (binding [*lock-id* lock-id#]
+                         ~form
+                         ~@forms)
+                       (catch Throwable e# e#))]
+         (log/log :trace {:task ::async-locking :phase :unlocking :lock-id lock-id#})
+         (when (not= lock-id# (async/<! lock#))
+           (println "warn: lock unlocked by other go block"))
+         (if (instance? Throwable result#)
+           (throw result#)
+           result#)))))
+
 (defn write-fully
   [socket buffer lock]
   (async/go
-    (async/<! lock)
-    (loop []
-      (if (.hasRemaining buffer)
-        (do
-          (tap> {:task ::write-fully :remaining (.remaining buffer)})
+    (async-locking lock
+      (loop []
+        (when (.hasRemaining buffer)
+          (log/log :debug {:task ::write-fully :phase :writing :remaining (.remaining buffer)})
           (let [result (async/<! (nio/write socket buffer {}))]
+            (log/log :debug {:task ::write-fully :phase :wrote-data :result result})
             (if (s/valid? ::anomalies/anomaly result)
-              (do
-                (async/put! lock true)
-                result)
-              (recur))))
-        (do
-          (async/put! lock true)
-          nil)))))
+              result
+              (recur))))))))
 
 (defn send-msg-common
   [socket msgid-atom method-calls lock method & args]
   (async/go
     (let [msgid (swap! msgid-atom inc)
           msg (into [method msgid] args)
-          _ (tap> {:task ::send-msg-common :msg msg})
+          _ (log/log :debug {:task ::send-msg-common :msg msg})
           bytes (msgpack/pack msg)
           buffer (ByteBuffer/allocate (+ (alength bytes) 2))
           result-chan (async/promise-chan)]
@@ -47,35 +82,37 @@
         (async/<! result-chan)))))
 
 (defn read-fully
-  [socket length]
-  (async/go-loop [buffer (ByteBuffer/allocate length)]
-    (tap> {:task ::read-fully :buffer buffer :socket socket})
-    (if (.hasRemaining buffer)
-      (let [result (async/<! (nio/read socket {:buffer buffer}))]
-        (tap> {:task ::read-fully :read-result result})
-        (if (s/valid? ::anomalies/anomaly result)
-          result
-          (if (neg? (:length result))
-            (if (.hasRemaining buffer)
-              {::anomalies/category ::anomalies/interrupted
-               ::anomalies/message "Socket closed, but awaiting more bytes"}
-              (.flip buffer))
-            (recur buffer))))
-      (.flip buffer))))
+  [socket length lock]
+  (async-locking lock
+    (async/go-loop [buffer (ByteBuffer/allocate length)]
+      (log/log :debug {:task ::read-fully :buffer buffer :socket socket})
+      (if (.hasRemaining buffer)
+        (let [result (async/<! (nio/read socket {:buffer buffer}))]
+          (log/log :debug {:task ::read-fully :read-result result})
+          (if (s/valid? ::anomalies/anomaly result)
+            result
+            (if (neg? (:length result))
+              (if (.hasRemaining buffer)
+                {::anomalies/category ::anomalies/interrupted
+                 ::anomalies/message "Socket closed, but awaiting more bytes"}
+                (.flip buffer))
+              (recur buffer))))
+        (.flip buffer)))))
 
 (defn read-message
-  [socket]
+  [socket lock]
   (async/go
-    (let [len-buf (async/<! (read-fully socket 2))]
-      (tap> {:task ::read-message :len-buf len-buf})
-      (if (s/valid? ::anomalies/anomaly len-buf)
-        len-buf
-        (let [length (bit-and (.getShort len-buf 0) 0xFFFF)]
-          (tap> {:task ::read-message :length length})
-          (if (> length 16384)
-            {::anomalies/category ::anomalies/incorrect
-             ::anomalies/message (str "message length " length " too long")}
-            (async/<! (read-fully socket length))))))))
+    (async-locking lock
+      (let [len-buf (async/<! (read-fully socket 2 lock))]
+        (log/log :debug {:task ::read-message :len-buf len-buf})
+        (if (s/valid? ::anomalies/anomaly len-buf)
+          len-buf
+          (let [length (bit-and (.getShort len-buf 0) 0xFFFF)]
+            (log/log :debug {:task ::read-message :length length})
+            (if (> length 16384)
+              {::anomalies/category ::anomalies/incorrect
+               ::anomalies/message (str "message length " length " too long")}
+              (async/<! (read-fully socket length lock)))))))))
 
 (defmacro buffer->io
   [& forms]
@@ -126,17 +163,3 @@
               buf (byte-array len)]
           (.get buffer buf)
           (String. buf StandardCharsets/UTF_8))))))
-
-(defprotocol AsyncLock
-  (lock [this])
-  (unlock [this]))
-
-(defn async-lock
-  []
-  (let [chan (async/chan 1)]
-    (async/put! chan true)
-    (reify AsyncLock
-      (lock [_]
-        (async/go (async/<! chan)))
-      (unlock [_]
-        (async/put! chan true)))))

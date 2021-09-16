@@ -5,7 +5,8 @@
             [clojure.set :as set]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
-            [skywalker.cluster :as cluster])
+            [skywalker.cluster :as cluster]
+            [skywalker.taplog :as log])
   (:import (java.net URI InetAddress)
            (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers HttpRequest$BodyPublishers HttpResponse)
            (java.util.function BiConsumer)
@@ -25,6 +26,9 @@
         uri (if (instance? URI uri) uri (URI. uri))]
     (reify cluster/Discovery
       (discover-nodes [_]
+        (log/log :debug {:task ::discover-nodes
+                         :phase :begin
+                         :uri uri})
         (let [uri (.resolve uri (str "/v1/health/service/" service "?wait=" wait "&passing=true"
                                      (when @index (str "&index=" @index))))
               request (-> (HttpRequest/newBuilder)
@@ -37,6 +41,10 @@
           (.whenComplete future
             (reify BiConsumer
               (accept [_ result exception]
+                (log/log :debug {:task ::discover-nodes
+                                 :phase :end
+                                 :result result
+                                 :exception exception})
                 (if (some? exception)
                   (async/put! channel {::anomalies/category ::anomalies/fault
                                        ::anomalies/message (.getMessage ^Throwable exception)
@@ -54,6 +62,7 @@
                                           (fn [node]
                                             {:node/id (-> node :Node :ID)
                                              :node/node (-> node :Node :Node)
+                                             :node/address (-> node :Node :Address)
                                              :service/address (-> node :Service :Address)
                                              :service/port (-> node :Service :Port)})
                                           (json/read (io/reader (.body response)) :key-fn keyword)))
@@ -61,7 +70,7 @@
                         removed-nodes (set/difference current-nodes healthy-nodes)]
                     (reset! nodes healthy-nodes)
                     (reset! index (-> response (.headers) (.firstValue "x-consul-index") (.orElse nil)))
-                    (tap> {:nodes healthy-nodes :index index})
+                    (log/log :debug {:nodes healthy-nodes :index index})
                     {:nodes healthy-nodes
                      :added-nodes added-nodes
                      :removed-nodes removed-nodes})
@@ -91,7 +100,7 @@
           (.whenComplete future
             (reify BiConsumer
               (accept [_ res ex]
-                (tap> [:debug "register service result" res "ex" ex])
+                (log/log :debug {:task ::register-node :phase :end :result res :exception ex})
                 (if (some? ex)
                   (async/put! channel {::anomalies/category ::anomalies/fault
                                        ::anomalies/message (.getMessage ^Throwable ex)
