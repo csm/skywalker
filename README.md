@@ -20,7 +20,6 @@ Each method call is a simple array of values:
 Method calls except ":tokens" will also include more arguments:
 
 * A timeout. A positive integer, the number of milliseconds the caller is willing to wait for the call to succeed.
-* A timeout value. This can be any value the caller wants returned on timeout. By default, this is a clojure keyword.
 * The ID being sent to or received from. This can be any value MessagePack can encode, but a string is a typical good data type.
 * For `:send!` calls only, the value being sent. This can be any value that can be encoded in MessagePack.
 
@@ -32,29 +31,33 @@ Responses are likewise sent back to the client as arrays of values, laid out as 
     * The boolean `true`, or the timeout value, for ":send!" calls (so a send will either succeed or time out).
     * The received value, or the timeout value, for ":recv!" calls.
     * The array of tokens for ":tokens" calls.
+    * A special timeout value, if the call timed out.
+  
+The timeout value is encoded as a msgpack extension, with type 0x54 (the character `T`).
+The value of the extension is a single zero byte.
 
- The method call:
+The method call:
 
 ```clojure
-[":recv!", 1, 1000, "timeout", "foo"]
+[":recv!", 1, 1000, "foo"]
 ```
 
 Would be encoded as bytes (in hexadecimal, including the length field prefix):
 
 ```
-001895a63a726563762101cd03e8a774696d656f7574a3666f6f
+001094a63a726563762101cd03e8a3666f6f
 ```
 
 The send method call:
 
 ```clojure
-[":send!", 2, 1000, "timeout", "foo", "bar"]
+[":send!", 2, 1000, "foo", "bar"]
 ```
 
 Would be encoded as bytes:
 
 ```
-001c96a63a73656e642102cd03e8a774696d656f7574a3666f6fa3626172
+001495a63a73656e642102cd03e8a3666f6fa3626172
 ```
 
 The response:
@@ -67,6 +70,18 @@ Would be encoded as:
 
 ```
 000d93a63a726563762101a3626172
+```
+
+And the response:
+
+```clojure
+[":recv!", 1, timeout-value]
+```
+
+Would be encoded as:
+
+```
+000c93a63a726563762101d45400
 ```
 
 ## Getting Started
