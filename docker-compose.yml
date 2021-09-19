@@ -59,6 +59,8 @@ services:
   skywalker1:
     image: rsdio/skywalker
     command: /bin/bash /run.sh --consul --health-port 8080 --health-bind 127.0.0.1
+    environment:
+      SKYWALKER_LOG_LEVEL: TRACE
     depends_on:
       - consul1
       - consul2
@@ -75,6 +77,8 @@ services:
   skywalker2:
     image: rsdio/skywalker
     command: /bin/bash /run.sh --consul --health-port 8080 --health-bind 127.0.0.1
+    environment:
+      SKYWALKER_LOG_LEVEL: TRACE
     depends_on:
       - consul1
       - consul2

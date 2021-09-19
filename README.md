@@ -91,3 +91,25 @@ The docker compose file can be used to spin up an example cluster of 2 skywalker
 ```
 docker compose up -d
 ```
+
+You can then start an nREPL server within the same network:
+
+```
+docker run --network skywalker_default -p 7888:7888 rsdio/skywalker-nrepl
+```
+
+Connect to local port 7888 to run a clojure repl. Then you can run:
+
+```clojure
+(require '[clojure.core.async :as async])
+(require '[skywalker.client :as client])
+(require '[skywalker.core :as s])
+
+(def client1 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "skywalker1" 3443) {})))
+(def client2 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "skywalker2" 3443) {})))
+
+(let [recv (s/recv! client1 "foo" {})
+      send (s/send! client2 "foo" "bar" {})]
+  (async/<!! (async/into [] (async/merge [recv send]))))
+; should print ["bar" true]
+```
