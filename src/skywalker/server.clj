@@ -108,9 +108,7 @@
                                                  :junction junction})
                    junction)
         closer (async/chan)
-        connections (atom #{})
-        read-lock (async-lock)
-        write-lock (async-lock)]
+        connections (atom #{})]
     (.bind server bind-address backlog)
     (async/go-loop []
       (when-let [pred (async/<! closer)]
@@ -130,7 +128,7 @@
                             (do
                               (async/go
                                 (swap! connections conj socket)
-                                (async/<! (handler junction socket tokens read-lock write-lock))
+                                (async/<! (handler junction socket tokens (async-lock) (async-lock)))
                                 (try
                                   (.close socket)
                                   (catch Exception _))

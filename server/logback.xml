@@ -7,7 +7,7 @@
         </encoder>
     </appender>
 
-    <root level="DEBUG">
+    <root level="${SKYWALKER_LOG_LEVEL:-DEBUG}">
         <appender-ref ref="STDOUT"/>
     </root>
 
