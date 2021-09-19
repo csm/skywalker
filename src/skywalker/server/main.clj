@@ -6,7 +6,8 @@
             [skywalker.cluster.health :as health]
             [clojure.core.async :as async]
             [clojure.tools.logging :as log])
-  (:import (java.net InetAddress InetSocketAddress)))
+  (:import (java.net InetAddress InetSocketAddress)
+           (java.security SecureRandom)))
 
 (deftype Msg [args])
 
@@ -31,6 +32,7 @@
    ["-p" "--port PORT" "Set the port to listen on"
     :parse-fn #(Integer/parseInt %)
     :default 3443]
+   ["-r" "--register" "Register self with discovery."]
    ["-s" "--service SVC" "Set the service name." :default "skywalker"]
    ["-h" "--help" "Show help and exit."]])
 
@@ -48,17 +50,20 @@
       (System/exit 1))
     (let [health (health/health-server :host (:health-bind (:options options))
                                        :port (:health-port (:options options)))
-          server (server/server (InetSocketAddress. (:bind (:options options)) (:port (:options options))))
           discovery (cond
                       (:consul (:options options))
                       (consul/consul-discovery (:service (:options options))
                                                (:consul-url (:options options)))
 
-                      :else
-                      (do (println "error: no discovery service configured")
-                          (System/exit 1)))]
+                      :else nil)
+          random (when discovery (SecureRandom.))
+          tokens (when discovery (vec (map (fn [_] (.nextLong random)) (range 32))))
+          server (server/server (InetSocketAddress. ^String (:bind (:options options))
+                                                    ^long (:port (:options options)))
+                                :discovery discovery
+                                :tokens tokens)]
       (swap! +system+ assoc :health health :server server :discovery discovery)
-      (comment
+      (when (and discovery (:register (:options options)))
         (async/<!!
           (cluster/register-node discovery {:bind-address (.getLocalAddress (:socket server))
                                             :health-url (str "http://"

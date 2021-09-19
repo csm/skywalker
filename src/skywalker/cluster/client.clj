@@ -131,7 +131,9 @@
 
 (defn cluster-client
   [discovery opts]
-  (let [nodes (atom [])
+  (let [nodes (atom (if (and (:tokens opts) (:junction opts))
+                      (vec (map (fn [t] (->ClusterEntry t (:junction opts))) (:tokens opts)))
+                      []))
         cluster-change (async/chan)
         cluster-change-mult (async/mult cluster-change)
         close-chan (async/chan)

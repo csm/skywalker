@@ -6,6 +6,7 @@
             [skywalker.core.impl :refer :all]
             [clojure.spec.alpha :as s]
             [msgpack.core :as msgpack]
+            [skywalker.cluster.client :as cc]
             [skywalker.taplog :as log])
   (:import (java.nio.channels AsynchronousServerSocketChannel)
            (java.nio ByteBuffer)
@@ -27,7 +28,13 @@
 
 (defn handler
   [junction socket tokens read-lock write-lock]
+  (log/log :debug {:task ::handler
+                   :phase :begin
+                   :junction junction
+                   :socket socket
+                   :tokens tokens})
   (async/go-loop []
+    (log/log :debug {:task ::handler :phase :begin-loop :socket socket})
     (let [message (async/<! (read-message socket read-lock))]
       (if (s/valid? ::anomalies/anomaly message)
         message
@@ -88,7 +95,7 @@
   - :closer-chan - A channel that you can use to close active connections.
     Pass a predicate function that will receive the AsynchronousSocketChannel
     and return a truthy value if the socket should be closed."
-  [bind-address & {:keys [backlog tokens num-tokens] :or {backlog 0 num-tokens 32}}]
+  [bind-address & {:keys [backlog tokens num-tokens discovery] :or {backlog 0 num-tokens 32}}]
   (let [server (AsynchronousServerSocketChannel/open)
         junction (core/local-junction)
         random (when-not tokens (SecureRandom.))
@@ -96,6 +103,10 @@
                                (map (fn [_] (.nextLong random)))
                                (sort)
                                (into [])))
+        junction (if discovery
+                   (cc/cluster-client discovery {:tokens tokens
+                                                 :junction junction})
+                   junction)
         closer (async/chan)
         connections (atom #{})
         read-lock (async-lock)

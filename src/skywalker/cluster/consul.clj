@@ -19,7 +19,7 @@
   consul for
 
   uri is the consul URL of the consul instance to contact."
-  [service uri & {:keys [wait] :or {wait "60s"}}]
+  [service uri & {:keys [wait ignore-self] :or {wait "60s" ignore-self true}}]
   (let [nodes (atom #{})
         index (atom nil)
         client (HttpClient/newHttpClient)
@@ -57,15 +57,19 @@
                  :error response}
                 (if (= (.statusCode response) 200)
                   (let [current-nodes @nodes
-                        healthy-nodes (set
-                                        (map
-                                          (fn [node]
-                                            {:node/id (-> node :Node :ID)
-                                             :node/node (-> node :Node :Node)
-                                             :node/address (-> node :Node :Address)
-                                             :service/address (-> node :Service :Address)
-                                             :service/port (-> node :Service :Port)})
-                                          (json/read (io/reader (.body response)) :key-fn keyword)))
+                        hostname (.getHostName (InetAddress/getLocalHost))
+                        healthy-nodes (->> (json/read (io/reader (.body response)) :key-fn keyword)
+                                           (map
+                                             (fn [node]
+                                               {:node/id (-> node :Node :ID)
+                                                :node/node (-> node :Node :Node)
+                                                :node/address (-> node :Node :Address)
+                                                :service/address (-> node :Service :Address)
+                                                :service/port (-> node :Service :Port)}))
+                                           (filter (fn [node]
+                                                     (or (not ignore-self)
+                                                         (not= (:node/node node) hostname))))
+                                           (set))
                         added-nodes (set/difference healthy-nodes current-nodes)
                         removed-nodes (set/difference current-nodes healthy-nodes)]
                     (reset! nodes healthy-nodes)

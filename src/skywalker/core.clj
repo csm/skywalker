@@ -2,7 +2,8 @@
   (:require [clojure.core.async :as async])
   (:import (com.google.common.cache LoadingCache CacheBuilder CacheLoader)
            (java.time Duration)
-           (com.google.common.base Supplier)))
+           (com.google.common.base Supplier)
+           (java.net InetAddress)))
 
 (defprotocol Junction
   (send! [this id value opts]
@@ -22,7 +23,7 @@
 
     Returns a promise channel"))
 
-(deftype LocalJunction [^LoadingCache chans]
+(deftype LocalJunction [^LoadingCache chans junction-id]
   Junction
   (send! [_ id value opts]
     (async/go
@@ -65,4 +66,5 @@
                        (.build
                          (CacheLoader/from
                            (reify Supplier
-                             (get [_] (async/chan))))))))
+                             (get [_] (async/chan))))))
+                   (.getHostName (InetAddress/getLocalHost))))

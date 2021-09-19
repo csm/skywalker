@@ -83,6 +83,7 @@
         (let [start (System/currentTimeMillis)
               result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":send!" timeout id value))
               elapsed (- (System/currentTimeMillis) start)]
+          (log/log :debug {:task ::send! :phase :got-result :result result :elapsed elapsed})
           (cond
             (= result ::closed)
             (if (pos? (- timeout elapsed))
@@ -99,6 +100,7 @@
         (let [start (System/currentTimeMillis)
               result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":recv!" timeout id))
               elapsed (- (System/currentTimeMillis) start)]
+          (log/log :debug {:task ::recv! :phase :got-result :result result :elapsed elapsed})
           (cond
             (= result ::closed)
             (if (pos? (- timeout elapsed))
