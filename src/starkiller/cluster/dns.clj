@@ -1,5 +1,5 @@
-(ns skywalker.cluster.dns
-  (:require [skywalker.cluster :as cluster]
+(ns starkiller.cluster.dns
+  (:require [starkiller.cluster :as cluster]
             [clojure.core.async :as async])
   (:import (java.util.concurrent TimeUnit)
            (java.net InetAddress)))

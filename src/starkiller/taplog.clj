@@ -1,4 +1,4 @@
-(ns skywalker.taplog
+(ns starkiller.taplog
   (:require [clojure.tools.logging :as log]))
 
 (defonce installed

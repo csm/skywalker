@@ -1,13 +1,13 @@
-(ns skywalker.cluster-test
+(ns starkiller.cluster-test
   (:require [clojure.core.async :as async]
             [clojure.spec.alpha :as spec]
             [clojure.test :refer :all]
             [cognitect.anomalies :as anomalies]
-            [skywalker.client :as remote]
-            [skywalker.cluster :as cluster]
-            [skywalker.cluster.client :as client]
-            [skywalker.core :as s]
-            [skywalker.server :as server])
+            [starkiller.client :as remote]
+            [starkiller.cluster :as cluster]
+            [starkiller.cluster.client :as client]
+            [starkiller.core :as s]
+            [starkiller.server :as server])
   (:import (java.net InetSocketAddress)
            (java.security SecureRandom)))
 
@@ -200,4 +200,6 @@
           send (s/send! (nth clients 2) :test :value! {})]
       (is (= :value! (async/<!! recv1)))
       (is (= :value! (async/<!! recv2)))
-      (is (true? (async/<!! send))))))
+      (is (true? (async/<!! send)))
+      (doseq [client clients]
+        ))))

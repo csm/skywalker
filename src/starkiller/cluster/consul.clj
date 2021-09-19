@@ -1,12 +1,12 @@
-(ns skywalker.cluster.consul
+(ns starkiller.cluster.consul
   (:require [clojure.core.async :as async]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
-            [skywalker.cluster :as cluster]
-            [skywalker.taplog :as log])
+            [starkiller.cluster :as cluster]
+            [starkiller.taplog :as log])
   (:import (java.net URI InetAddress)
            (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers HttpRequest$BodyPublishers HttpResponse)
            (java.util.function BiConsumer)

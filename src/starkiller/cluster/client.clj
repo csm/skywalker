@@ -1,12 +1,12 @@
-(ns skywalker.cluster.client
+(ns starkiller.cluster.client
   (:require [clojure.core.async :as async]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
             [msgpack.core :as msgpack]
-            [skywalker.core :as core]
-            [skywalker.client :as client]
-            [skywalker.cluster :as cluster]
-            [skywalker.taplog :as log])
+            [starkiller.core :as core]
+            [starkiller.client :as client]
+            [starkiller.cluster :as cluster]
+            [starkiller.taplog :as log])
   (:import (java.util Collections)
            (com.google.common.hash Hashing Hasher)
            (java.net InetSocketAddress)
@@ -22,7 +22,7 @@
 
 (defmethod print-method ClusterEntry
   [e w]
-  (.write w (str "(skywalker.cluster.client/->ClusterEntry " (pr-str (.-token e))
+  (.write w (str "(starkiller.cluster.client/->ClusterEntry " (pr-str (.-token e))
                  " " (pr-str (.-node e)) \))))
 
 (defn token-for
@@ -53,7 +53,7 @@
          op# ~op
          change-mult# ~change-mult
          timeout# (get ~opts :timeout 60000)
-         timeout-val# (get ~opts :timeout-val :skywalker.core/timeout)
+         timeout-val# (get ~opts :timeout-val :starkiller.core/timeout)
          changes# (async/chan (async/dropping-buffer 1))
          change-tap# (async/tap change-mult# changes#)
          result-chan# (async/promise-chan)]
@@ -65,13 +65,13 @@
                                    :node node#})
                start# (System/currentTimeMillis)
                res# (async/alt! (op# node#) ([v#] v#)
-                                changes# :skywalker.cluster.client/changed)
+                                changes# :starkiller.cluster.client/changed)
                end# (System/currentTimeMillis)
                next-timeout# (- timeout# (- end# start#))]
            (log/log :trace {:task ::cluster-exec
                             :phase :got-result
                             :result res#})
-           (if (= res# :skywalker.cluster.client/changed)
+           (if (= res# :starkiller.cluster.client/changed)
              (if (pos? next-timeout#)
                (recur next-timeout#)
                (do

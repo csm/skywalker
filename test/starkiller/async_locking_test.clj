@@ -1,6 +1,6 @@
-(ns skywalker.async-locking-test
+(ns starkiller.async-locking-test
   (:require [clojure.test :refer :all]
-            [skywalker.core.impl :refer [async-lock async-locking]]
+            [starkiller.core.impl :refer [async-lock async-locking]]
             [clojure.core.async :as async]))
 
 (deftest test-async-locking

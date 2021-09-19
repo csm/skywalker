@@ -1,9 +1,9 @@
-(ns skywalker.server.main
+(ns starkiller.server.main
   (:require [clojure.tools.cli :as cli]
-            [skywalker.server :as server]
-            [skywalker.cluster :as cluster]
-            [skywalker.cluster.consul :as consul]
-            [skywalker.cluster.health :as health]
+            [starkiller.server :as server]
+            [starkiller.cluster :as cluster]
+            [starkiller.cluster.consul :as consul]
+            [starkiller.cluster.health :as health]
             [clojure.core.async :as async]
             [clojure.tools.logging :as log])
   (:import (java.net InetAddress InetSocketAddress)
@@ -33,7 +33,7 @@
     :parse-fn #(Integer/parseInt %)
     :default 3443]
    ["-r" "--register" "Register self with discovery."]
-   ["-s" "--service SVC" "Set the service name." :default "skywalker"]
+   ["-s" "--service SVC" "Set the service name." :default "starkiller"]
    ["-h" "--help" "Show help and exit."]])
 
 (def +system+ (atom nil))
@@ -70,7 +70,7 @@
                                                              (:health-bind (:options options))
                                                              \: (:port health)
                                                              "/health")})))
-      (println "Skywalker service running.")
+      (println "starkiller service running.")
       (let [wat (async/alt!! (:server-chan server) :server
                              (:running-chan health) :health)]
         (println wat "exited. I'm stopping now. If that was a mistake, check what happened.")

@@ -1,4 +1,4 @@
-(ns skywalker.core
+(ns starkiller.core
   (:require [clojure.core.async :as async])
   (:import (com.google.common.cache LoadingCache CacheBuilder CacheLoader)
            (java.time Duration)

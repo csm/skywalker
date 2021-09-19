@@ -1,6 +1,6 @@
 {
   "service": {
-    "name": "skywalker",
+    "name": "starkiller",
     "port": 3443,
     "checks": [
       {

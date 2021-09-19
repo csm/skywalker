@@ -1,6 +1,6 @@
-(ns skywalker.core-test
+(ns starkiller.core-test
   (:require [clojure.test :refer :all]
-            [skywalker.core :as core]
+            [starkiller.core :as core]
             [clojure.core.async :as async]))
 
 (deftest test-recv-timeout

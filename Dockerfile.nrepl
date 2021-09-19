@@ -1,8 +1,8 @@
 FROM clojure
 RUN apt-get update
 RUN apt-get install -y git
-RUN mkdir /skywalker
-COPY ./ /skywalker
-WORKDIR /skywalker
+RUN mkdir /starkiller
+COPY ./ /starkiller
+WORKDIR /starkiller
 RUN clj -A:nrepl -P
 CMD ["clj", "-M:nrepl", "-m", "nrepl.cmdline", "-p", "7888", "-b", "0.0.0.0"]

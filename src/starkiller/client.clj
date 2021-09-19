@@ -1,18 +1,18 @@
-(ns skywalker.client
+(ns starkiller.client
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
             [clojure.spec.alpha :as s]
             [cognitect.anomalies :as anomalies]
             [msgpack.core :as msgpack]
-            [skywalker.core :as core]
-            [skywalker.core.impl :refer :all]
-            [skywalker.taplog :as log])
+            [starkiller.core :as core]
+            [starkiller.core.impl :refer :all]
+            [starkiller.taplog :as log])
   (:import (org.cliffc.high_scale_lib NonBlockingHashMapLong)
            (java.nio.channels AsynchronousSocketChannel)
            (java.io Closeable)
            (java.util UUID)
            (java.net InetSocketAddress)
-           (skywalker.core.impl Timeout)))
+           (starkiller.core.impl Timeout)))
 
 (defprotocol Client
   (start! [this] "Starts the client."))
@@ -78,7 +78,7 @@
 (deftype RemoteJunction [msgid-atom socket remote-address retries max-delay method-calls read-lock write-lock socket-chan junction-id node]
   core/Junction
   (send! [_ id value opts]
-    (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
+    (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :starkiller/timeout}} opts]
       (async/go-loop [timeout timeout]
         (let [start (System/currentTimeMillis)
               result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":send!" timeout id value))
@@ -95,7 +95,7 @@
             :else result)))))
 
   (recv! [_ id opts]
-    (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :skywalker/timeout}} opts]
+    (let [{:keys [timeout timeout-val] :or {timeout 60000 timeout-val :starkiller/timeout}} opts]
       (async/go-loop [timeout timeout]
         (let [start (System/currentTimeMillis)
               result (async/<! (send-message-with-retry socket socket-chan remote-address retries max-delay msgid-atom method-calls write-lock ":recv!" timeout id))
@@ -167,7 +167,7 @@
 
 (defmethod print-method RemoteJunction
   [j w]
-  (.write w (pr-str {:type 'skywalker.client/RemoteJunction
+  (.write w (pr-str {:type 'starkiller.client/RemoteJunction
                      :msgid (deref (.-msgid_atom j))
                      :connected? (some-> (.-socket j) ^AsynchronousSocketChannel (deref) (.isOpen))
                      :remote-address {:host (.getHostAddress (.getAddress ^InetSocketAddress (.-remote_address j)))

@@ -1,11 +1,11 @@
-(ns skywalker.remote-test
+(ns starkiller.remote-test
   (:require [clojure.core.async :as async]
             [clojure.spec.alpha :as s]
             [clojure.test :refer :all]
             [cognitect.anomalies :as anomalies]
-            [skywalker.client :as client]
-            [skywalker.core :as core]
-            [skywalker.server :as server])
+            [starkiller.client :as client]
+            [starkiller.core :as core]
+            [starkiller.server :as server])
   (:import (java.net InetSocketAddress InetAddress)))
 
 (comment

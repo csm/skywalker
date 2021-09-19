@@ -1,9 +1,9 @@
-(ns skywalker.server.testing
-  (:require [skywalker.server :as server]
-            [skywalker.cluster :as cluster]
+(ns starkiller.server.testing
+  (:require [starkiller.server :as server]
+            [starkiller.cluster :as cluster]
             [clojure.core.async :as async]
-            [skywalker.cluster.client :as cc]
-            [skywalker.core :as core])
+            [starkiller.cluster.client :as cc]
+            [starkiller.core :as core])
   (:import (java.net InetSocketAddress InetAddress)
            (java.security SecureRandom)))
 

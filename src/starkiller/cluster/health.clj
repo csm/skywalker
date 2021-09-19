@@ -1,4 +1,4 @@
-(ns skywalker.cluster.health
+(ns starkiller.cluster.health
   (:require [clojure.core.async :as async])
   (:import (org.eclipse.jetty.server Server ServerConnector Connector)
            (org.eclipse.jetty.servlet ServletHandler ServletHolder)

@@ -1,13 +1,13 @@
-(ns skywalker.server
+(ns starkiller.server
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
             [cognitect.anomalies :as anomalies]
-            [skywalker.core :as core]
-            [skywalker.core.impl :refer :all]
+            [starkiller.core :as core]
+            [starkiller.core.impl :refer :all]
             [clojure.spec.alpha :as s]
             [msgpack.core :as msgpack]
-            [skywalker.cluster.client :as cc]
-            [skywalker.taplog :as log])
+            [starkiller.cluster.client :as cc]
+            [starkiller.taplog :as log])
   (:import (java.nio.channels AsynchronousServerSocketChannel)
            (java.nio ByteBuffer)
            (java.security SecureRandom)))
@@ -79,7 +79,7 @@
             (println "invalid message:" (pr-str message))))))))
 
 (defn server
-  "Start a skywalker server, bound to bind-address.
+  "Start a starkiller server, bound to bind-address.
 
   Options include:
 

@@ -1,4 +1,4 @@
-# skywalker
+# starkiller
 
 A lightweight, scalable messaging system.
 
@@ -86,7 +86,7 @@ Would be encoded as:
 
 ## Getting Started
 
-The docker compose file can be used to spin up an example cluster of 2 skywalker nodes and 5 consul nodes:
+The docker compose file can be used to spin up an example cluster of 2 starkiller nodes and 5 consul nodes:
 
 ```
 docker compose up -d
@@ -95,18 +95,18 @@ docker compose up -d
 You can then start an nREPL server within the same network:
 
 ```
-docker run --network skywalker_default -p 7888:7888 rsdio/skywalker-nrepl
+docker run --network starkiller_default -p 7888:7888 rsdio/starkiller-nrepl
 ```
 
 Connect to local port 7888 to run a clojure repl. Then you can run:
 
 ```clojure
 (require '[clojure.core.async :as async])
-(require '[skywalker.client :as client])
-(require '[skywalker.core :as s])
+(require '[starkiller.client :as client])
+(require '[starkiller.core :as s])
 
-(def client1 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "skywalker1" 3443) {})))
-(def client2 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "skywalker2" 3443) {})))
+(def client1 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "starkiller1" 3443) {})))
+(def client2 (async/<!! (client/remote-junction (java.net.InetSocketAddress. "starkiller2" 3443) {})))
 
 (let [recv (s/recv! client1 "foo" {})
       send (s/send! client2 "foo" "bar" {})]

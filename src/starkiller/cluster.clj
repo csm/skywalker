@@ -1,4 +1,4 @@
-(ns skywalker.cluster)
+(ns starkiller.cluster)
 
 (defprotocol Discovery
   (discover-nodes [this]

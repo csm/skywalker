@@ -1,4 +1,4 @@
-(ns skywalker.core.impl
+(ns starkiller.core.impl
   "Common implementation details for client/server."
   (:require [clojure.core.async :as async]
             [clojure.java.nio :as nio]
@@ -7,7 +7,7 @@
             [msgpack.core :as msgpack]
             msgpack.clojure-extensions
             [msgpack.macros :refer [extend-msgpack]]
-            [skywalker.taplog :as log])
+            [starkiller.taplog :as log])
   (:import (java.io DataInput IOException)
            (java.nio ByteBuffer BufferUnderflowException)
            (java.nio.charset StandardCharsets)))
