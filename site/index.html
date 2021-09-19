@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <title>starkiller</title>
+    </head>
+    <style type="text/css">
+body {
+  background-color: black;
+  background-image: radial-gradient(
+    rgba(0, 100, 0, 0.75), black 120%
+  );
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  padding: 2rem;
+  color: #efe;
+  font: 1.3rem "SF Mono", Consolas, Inconsolata, monospace;
+  text-shadow: 0 0 5px #C8C8C8;
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(black, 0.15),
+      rgba(black, 0.15) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    pointer-events: none;
+  }
+}
+pre {
+  font: 1.3rem "SF Mono", Consolas, Inconsolata, monospace;
+}
+a:link {
+  color: #eef;
+}
+a:visited {
+  color: #fef;
+}
+a:active {
+  color: #fee;
+}
+::selection {
+  background: #0080FF;
+  text-shadow: none;
+}
+pre {
+  margin: 0;
+}
+    </style>
+    <body>
+        <h1>starkiller</h1>
+
+        <p>
+            git clone <a href="https://github.com/csm/starkiller">https://github.com/csm/starkiller.git</a><br>
+            docker pull consul<br>
+            docker pull <a href="https://hub.docker.com/r/rsdio/starkiller">rsdio/starkiller</a><br>
+            cd starkiller<br>
+            docker compose up -d
+        </p>
+
+        <p>
+            docker pull <a href="https://hub.docker.com/r/rsdio/starkiller-nrepl">rsdio/starkiller-nrepl</a><br>
+            docker run --network starkiller_default -p 7888:7888 rsdio/starkiller-nrepl<br>
+            # connect to your nrepl over port 7888
+        </p>
+
+
+        <pre>
+=&gt; (require '[starkiller.client :as client]
+            '[clojure.core.async :as async]
+            '[starkiller.core :as s])
+=&gt; (let [client1 (async/&lt;!! (client/remote-junction (java.net.InetSocketAddress. "starkiller1" 3443) {}))
+         client2 (async/&lt;!! (client/remote-junction (java.net.InetSocketAddress. "starkiller2" 3443) {}))
+         send (s/send! client1 "foo" "bar" {})
+         recv (s/recv! client2 "foo" {})]
+     (async/&lt;!! (async/into [] (async/merge [send recv]))))
+        </pre>
+
+        <p>
+            <a href="https://github.com/csm/starkiller">Clojure client</a><br>
+            <a href="https://github.com/csm/starkiller-java-client">Java client</a>
+        </p>
+    </body>
+</html>

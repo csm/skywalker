@@ -3,3 +3,7 @@
 /.idea/
 /.cpcache/
 /skywalker.jar
+/*.iml
+/.DS_Store
+pom.xml
+/target
