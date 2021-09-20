@@ -7,7 +7,7 @@
             [starkiller.client :as client]
             [starkiller.cluster :as cluster]
             [starkiller.taplog :as log])
-  (:import (java.util Collections)
+  (:import (java.util Collections UUID)
            (com.google.common.hash Hashing Hasher)
            (java.net InetSocketAddress)
            (java.io Closeable)))
@@ -134,17 +134,20 @@
   (let [nodes (atom (if (and (:tokens opts) (:junction opts))
                       (vec (map (fn [t] (->ClusterEntry t (:junction opts))) (:tokens opts)))
                       []))
+        client-id (get opts :client-id (str (UUID/randomUUID)))
         cluster-change (async/chan)
         cluster-change-mult (async/mult cluster-change)
         close-chan (async/chan)
         discover-loop (async/go-loop []
                         (log/log :debug {:task  ::cluster-client
-                                         :phase :begin-discover-loop})
+                                         :phase :begin-discover-loop
+                                         :client-id client-id})
                         (let [results (async/alt! (cluster/discover-nodes discovery) ([v] v)
                                                   close-chan ::closed)]
                           (log/log :debug {:task ::cluster-client
                                            :phase :discovery-done
-                                           :results results})
+                                           :results results
+                                           :client-id client-id})
                           (when-not (or (= ::closed results) (nil? results))
                             (when (or (not-empty (:added-nodes results))
                                       (not-empty (:removed-nodes results)))
@@ -155,7 +158,8 @@
                                                      (async/<!)
                                                      (peek #(log/log :debug {:task ::cluster-client
                                                                              :phase :created-new-clients
-                                                                             :results %}))
+                                                                             :results %
+                                                                             :client-id client-id}))
                                                      (remove #(s/valid? ::anomalies/anomaly %)))
                                     removed-ids (set (map :id (:removed-nodes results)))
                                     removed? (fn [entry]
@@ -170,7 +174,8 @@
                                              (sort))))
                                 (log/log :debug {:task ::cluster-client
                                                  :phase :configured-nodes
-                                                 :nodes @nodes})
+                                                 :nodes @nodes
+                                                 :client-id client-id})
                                 (async/offer! cluster-change true)))
                             (recur))))]
     (->ClusterClient nodes cluster-change-mult close-chan)))

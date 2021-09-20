@@ -7,15 +7,25 @@
             [starkiller.cluster :as cluster]
             [starkiller.cluster.client :as client]
             [starkiller.core :as s]
-            [starkiller.server :as server])
+            [starkiller.server :as server]
+            [starkiller.taplog :as log])
   (:import (java.net InetSocketAddress)
-           (java.security SecureRandom)))
+           (java.security SecureRandom)
+           (java.io Closeable)))
 
 (defn mock-discovery
-  [chan]
+  [chan id]
   (reify cluster/Discovery
-    (discover-nodes [_] chan)
-    (register-node [_ _] (async/go))))
+    (discover-nodes [_]
+      (async/go
+        (log/log :debug {:task ::discover-nodes :phase :begin :id id})
+        (let [result (async/<! chan)]
+          (log/log :debug {:task ::discover-nodes :phase :end :id id :result result})
+          result)))
+    (register-node [_ _] (async/go))
+
+    Closeable
+    (close [_])))
 
 (defn mapped-discovery
   [discovery mapper]
@@ -28,33 +38,38 @@
 
 (def ^:dynamic *nodes*)
 (def ^:dynamic *client*)
-(def ^:dynamic *discovery-chan*)
+(def ^:dynamic *discovery-chans*)
 (def ^:dynamic *removed-nodes*)
 
 (use-fixtures :each
   (fn [f]
     (let [random (SecureRandom.)
-          discovery-chan (async/chan)
-          discovery-mult (async/mult discovery-chan)
-          discovery (mock-discovery (async/tap discovery-mult (async/chan)))
-          server-discovery1 (mapped-discovery (mock-discovery (async/tap discovery-mult (async/chan)))
-                                              (fn [{:keys [nodes added-nodes removed-nodes]}]
-                                                {:nodes nodes
-                                                 :added-nodes (set (filter #(not= "server1" (:node/node %)) added-nodes))
-                                                 :removed-nodes (set (filter #(not= "server1" (:node/node %)) removed-nodes))}))
-          server-discovery2 (mapped-discovery (mock-discovery (async/tap discovery-mult (async/chan)))
-                                              (fn [{:keys [nodes added-nodes removed-nodes]}]
-                                                {:nodes nodes
-                                                 :added-nodes (set (filter #(not= "server2" (:node/node %)) added-nodes))
-                                                 :removed-nodes (set (filter #(not= "server2" (:node/node %)) removed-nodes))}))
-          server-discovery3 (mapped-discovery (mock-discovery (async/tap discovery-mult (async/chan)))
-                                              (fn [{:keys [nodes added-nodes removed-nodes]}]
-                                                {:nodes nodes
-                                                 :added-nodes (set (filter #(not= "server3" (:node/node %)) added-nodes))
-                                                 :removed-nodes (set (filter #(not= "server3" (:node/node %)) removed-nodes))}))
-          tokens1 (vec (map (fn [_] (.nextLong random)) (range 32)))
-          tokens2 (vec (map (fn [_] (.nextLong random)) (range 32)))
-          tokens3 (vec (map (fn [_] (.nextLong random)) (range 32)))
+          discovery-chans (mapv (fn [i] {:chan (async/chan 16) :id (str "server-" i)}) (range 3))
+          discoveries (mapv #(mock-discovery (:chan %) (:id %)) discovery-chans)
+          client-chan {:chan (async/chan 16) :id ::test-client}
+          client-discovery (mock-discovery (:chan client-chan) ::test-client)
+          discovery-chans (conj discovery-chans client-chan)
+          server-discovery1 (mapped-discovery (nth discoveries 0)
+                                              (fn [{:keys [nodes added-nodes removed-nodes] :as res}]
+                                                (when res
+                                                  {:nodes nodes
+                                                   :added-nodes (set (filter #(not= "server1" (:node/node %)) added-nodes))
+                                                   :removed-nodes (set (filter #(not= "server1" (:node/node %)) removed-nodes))})))
+          server-discovery2 (mapped-discovery (nth discoveries 1)
+                                              (fn [{:keys [nodes added-nodes removed-nodes] :as res}]
+                                                (when res
+                                                  {:nodes nodes
+                                                   :added-nodes (set (filter #(not= "server2" (:node/node %)) added-nodes))
+                                                   :removed-nodes (set (filter #(not= "server2" (:node/node %)) removed-nodes))})))
+          server-discovery3 (mapped-discovery (nth discoveries 2)
+                                              (fn [{:keys [nodes added-nodes removed-nodes] :as res}]
+                                                (when res
+                                                  {:nodes nodes
+                                                   :added-nodes (set (filter #(not= "server3" (:node/node %)) added-nodes))
+                                                   :removed-nodes (set (filter #(not= "server3" (:node/node %)) removed-nodes))})))
+          tokens1 (mapv (fn [_] (.nextLong random)) (range 32))
+          tokens2 (mapv (fn [_] (.nextLong random)) (range 32))
+          tokens3 (mapv (fn [_] (.nextLong random)) (range 32))
           s1 (server/server (InetSocketAddress. "127.0.0.1" 0)
                             :tokens tokens1
                             :junction (client/cluster-client server-discovery1
@@ -85,20 +100,28 @@
                    :node/address "127.0.0.1"
                    :service/address ""
                    :service/port (-> s3 :socket (.getLocalAddress) (.getPort))}}
-          client (client/cluster-client discovery {})]
+          client (client/cluster-client client-discovery {:client-id ::test-client})]
+      (log/log :debug {:discovery-chans discovery-chans})
       (try
         (binding [*nodes* (atom nodes)
                   *client* client
-                  *discovery-chan* discovery-chan
+                  *discovery-chans* discovery-chans
                   *removed-nodes* (atom #{})]
-          (async/put! discovery-chan {:added-nodes (set nodes)})
+          (doseq [discovery-chan discovery-chans]
+            (async/put! (:chan discovery-chan) {:added-nodes (set nodes)}
+                        (fn [r]
+                          (log/log :info {:task ::use-fixtures
+                                          :phase :sent-initial-discovery
+                                          :chan discovery-chan
+                                          :result r}))))
           (f))
         (finally
           (.close (:socket s1))
           (.close (:socket s2))
           (.close (:socket s3))
           (.close client)
-          (async/close! discovery-chan))))))
+          (doseq [discovery-chan discovery-chans]
+            (async/close! (:chan discovery-chan))))))))
 
 (deftest test-send-timeout
   (testing "send! timeouts"
@@ -140,49 +163,46 @@
         (swap! *removed-nodes* disj to-add)
         (swap! *removed-nodes* conj removed)
         (swap! *nodes* conj to-add)
-        (async/put! *discovery-chan* {:nodes @*nodes*
-                                      :removed-nodes #{removed}
-                                      :added-nodes #{to-add}}))
+        (doseq [discovery-chan *discovery-chans*]
+          (async/put! (:chan discovery-chan) {:nodes @*nodes*
+                                              :removed-nodes #{removed}
+                                              :added-nodes #{to-add}})))
       (let [removed (rand-nth (seq @*nodes*))]
         (swap! *removed-nodes* conj removed)
         (swap! *nodes* disj removed)
-        (async/put! *discovery-chan* {:nodes @*nodes*
-                                      :removed-nodes #{removed}
-                                      :added-nodes #{}})))
+        (doseq [discovery-chan *discovery-chans*]
+          (async/put! (:chan discovery-chan) {:nodes @*nodes*
+                                              :removed-nodes #{removed}
+                                              :added-nodes #{}}))))
     (when (not-empty @*removed-nodes*)
       (let [to-add (rand-nth (seq @*removed-nodes*))]
         (swap! *removed-nodes* disj to-add)
         (swap! *nodes* conj to-add)
-        (async/put! *discovery-chan* {:nades @*nodes*
-                                      :removed-nodes #{}
-                                      :added-nodes #{to-add}})))))
+        (doseq [discovery-chan *discovery-chans*]
+          (async/put! (:chan discovery-chan) {:nades @*nodes*
+                                              :removed-nodes #{}
+                                              :added-nodes #{to-add}}))))))
 
 (deftest test-send-recv-chaos
   (testing "that send then recv works during cluster changes"
     (let [send-successes (atom 0)
           recv-successes (atom 0)
           running? (atom true)]
-      (async/go-loop []
-        (when @running?
-          (async/<! (async/timeout (rand-int 500)))
-          (mutate!)
-          (recur)))
-      (let [sends (async/go-loop [n 100]
-                    (when (pos? n)
-                      (async/<! (async/timeout (rand-int 500)))
-                      (when (true? (async/<! (s/send! *client* "foo" "bar" {})))
-                        (swap! send-successes inc))
-                      (recur (dec n))))
-            recvs (async/go-loop [n 100]
-                    (when (pos? n)
-                      (async/<! (async/timeout (rand-int 500)))
-                      (when (= "bar" (async/<! (s/recv! *client* "foo" {})))
-                        (swap! recv-successes inc))
-                      (recur (dec n))))]
-        (async/alt!! (async/into [] (async/merge [sends recvs])) :done
-                     (async/timeout 60000) :timeout)
-        (is (= 100 @send-successes))
-        (is (= 100 @recv-successes))))))
+      (loop [tries 100]
+        (when (pos? tries)
+          (let [send (async/go
+                       (async/<! (async/timeout (rand-int 500)))
+                       (when (true? (async/<! (s/send! *client* "foo" "bar" {:timeout 1000})))
+                         (swap! send-successes inc)))
+                _ (mutate!)
+                recv (async/go
+                       (async/<! (async/timeout (rand-int 500)))
+                       (when (= "bar" (async/<! (s/recv! *client* "foo" {:timeout 1000})))
+                         (swap! recv-successes inc)))]
+            (async/<!! (async/into [] (async/merge [send recv]))))
+          (recur (dec tries))))
+      (is (= 100 @send-successes))
+      (is (= 100 @recv-successes)))))
 
 (deftest test-server-side-clustering
   (testing "that messages are routed server-side"
@@ -195,11 +215,11 @@
                        (async/into [])
                        (async/<!!))
           _ (is (not (some #(spec/valid? ::anomalies/anomaly %) clients)))
-          recv1 (s/recv! (nth clients 0) :test {})
-          recv2 (s/recv! (nth clients 1) :test {})
-          send (s/send! (nth clients 2) :test :value! {})]
+          recv1 (s/recv! (nth clients 0) :test {:timeout 1000})
+          recv2 (s/recv! (nth clients 1) :test {:timeout 1000})
+          send (s/send! (nth clients 2) :test :value! {:timeout 1000})]
       (is (= :value! (async/<!! recv1)))
       (is (= :value! (async/<!! recv2)))
       (is (true? (async/<!! send)))
       (doseq [client clients]
-        ))))
+        (.close client)))))
